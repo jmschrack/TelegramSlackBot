@@ -4,4 +4,9 @@ export SLACK_CHAT_ID=
 export TELEGRAM_TOKEN=
 export TELEGRAM_CHAT_ID=
 
-SLACK_TOKEN=$SLACK_TOKEN SLACK_CHAT_ID=$SLACK_CHAT_ID TELEGRAM_TOKEN=$TELEGRAM_TOKEN TELEGRAM_CHAT_ID=$TELEGRAM_CHAT_ID node TelegramSlackBot.js
+if [ $1 == "debug" ]
+    then
+        node TestEnvironment.js
+fi
+node TelegramSlackBot.js
+

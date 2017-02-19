@@ -33,7 +33,7 @@ function sendSlackMessage(name, message, image) {
     params.icon_url = image;
   else
     params.icon_url = 'https://f2rank.noservidor.com.br/img/logo.png';
-  sBot.postMessageToGroup('memphisgamedevs', message, params);
+  sBot.postMessageToChannel('memphisgamedevs', message, params);
 }
 
 function sendTelegramMessage(message){
