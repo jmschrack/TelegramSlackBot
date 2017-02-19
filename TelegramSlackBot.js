@@ -11,29 +11,40 @@ var sBot = new SlackBot({
     name: 'Telegram Bot'
 });
 
-var slackChannelName = 'general';
+var slackChannelName = process.env.SLACK_CHAT_ID || '';
 
 var token = process.env.TELEGRAM_TOKEN || ''; // Generate one with BotFather
 // Setup polling way
 var tBot = new TelegramBot(token, {polling: true});
 var tChatId = process.env.TELEGRAM_CHAT_ID || ''; // Your telegram group ID
 var slackBotRunning = false;
-
+var slackUsers = {};
 
 
 /*
 * Helper Methods
 */
 
+function sendSlackMessageWithIcon(name,message,userId){
+  getTelegramIcon(userId).then(function(uri){
+    sendSlackMessage(name,message,uri);
+  })
+}
+
 function sendSlackMessage(name, message, image) {
   console.log("(Slack) "+name+": "+message);
-  var params = {};
+  var params = {
+    link_names:true
+  };
   sBot.name = name + " (Telegram)";
-  if (image !== undefined&&image!==null)
+  if (image != null)
     params.icon_url = image;
   else
-    params.icon_url = 'https://f2rank.noservidor.com.br/img/logo.png';
-  sBot.postMessageToChannel('memphisgamedevs', message, params);
+    params.icon_url = 'http://fm.cnbc.com/applications/cnbc.com/resources/img/editorial/2014/09/02/101962788-152406431.530x298.jpg';
+  sBot.postMessageToChannel('general', message, params).fail(function(data){
+    console.log("Failed to send slack message. Error dump:");
+    console.log(data);
+  });
 }
 
 function sendTelegramMessage(message){
@@ -47,14 +58,31 @@ function sendTelegramMessage(message){
 
 
 function getTelegramIcon(userId){
-  var iconURI=null;
-   tBot.getUserProfilePhotos(msg.from.id).then(function(data) {
+  return new Promise(function (resolve,reject){
+    //ASYNC FOR DAYS, SON
+    tBot.getUserProfilePhotos(userId).then(function(data) {
      if (data.total_count > 0) {
           var f = data.photos[0][0].file_id;
-          tBot.getFileLink(f).then(function(fileURI) { iconURI=fileURI; });
+          tBot.getFileLink(f).then(function(fileURI) { 
+            resolve(fileURI);
+          });
      }
    });
-   return iconURI;
+  });
+  
+  
+}
+
+function cleanSlackUsers(message){
+  var usersStrings=(message+"").match(/<@\w*>/g);
+  if(usersStrings!==null){
+    usersStrings.forEach(function(value){
+    var cleanedId=value.replace("<@","").replace(">","");
+    message=message.replace(value,"@"+slackUsers[cleanedId].name);
+  });
+  }
+  
+  return message;
 }
 
 
@@ -65,8 +93,13 @@ function getTelegramIcon(userId){
 // Any kind of message
 tBot.on('message', function (msg) {
   var chatId = msg.chat.id;
-  if (slackBotRunning && msg.chat.id === tChatId) { 
-        sendSlackMessage(msg.from.first_name + " " + msg.from.last_name, msg.text,getTelegramIcon(msg.from.id));
+  //console.log("Telegram message:");
+ // console.log(msg);
+
+  if (slackBotRunning && (msg.chat.id+"") === tChatId) { 
+        sendSlackMessageWithIcon(msg.from.first_name + " " + msg.from.last_name, msg.text,msg.from.id);
+  }else{
+    console.log("Telegram message conditional fail || slackBotRunning:"+slackBotRunning+"  && msg.chat.id===tChatId:"+(msg.chat.id === tChatId));
   }
 });
 
@@ -77,37 +110,44 @@ sBot.on('start', function() {
       console.log("SlackBot running");
       slackBotRunning = true;
       var params = {
-          icon_url: 'https://f2rank.noservidor.com.br/img/logo.png'
+          icon_url: 'http://fm.cnbc.com/applications/cnbc.com/resources/img/editorial/2014/09/02/101962788-152406431.530x298.jpg'
       };
-     
-      sendSlackMessage("Telegram Bot", "Protobot online");
-      sendTelegramMessage("Protobot online. Charging gamma cannons!");
+     console.log("Sending Slack Hello");
+      sendSlackMessage("Proto Telegram Bot", "Protobot online");
+      console.log("Sending Telegram hello");
+      sendTelegramMessage("Proto Slack bot online.");
 
-      var users = {};
+      console.log("Fetching slack users");
+      
 
       sBot.getUsers().then(function(userlist) {
         console.log("Loaded "+userlist.members.length+" users.");
         for (var userC in userlist.members) {
           var user = userlist.members[userC];
-          users[user.id] = user;
+          slackUsers[user.id] = user;
         }
       });
 
       sBot.on('message', function(data) {
+       //console.log("Slack Message")
+       //console.log(data);
+
         if (data.type === "message" && data.subtype !== 'bot_message' && data.subtype !== 'file_share') {
           var username = "Unknown";
-          if (data.user in users)
-            username = users[data.user].real_name + "[" + users[data.user].name + "]";
-          console.log("(Telegram) ["+data.subtype+"] "+username+": "+data.text);
-          sendTelegramMessage( username+": "+data.text);
+          if (data.user in slackUsers)
+            username = slackUsers[data.user].real_name + "[" + slackUsers[data.user].name + "]";
+
+          //console.log("(Telegram) ["+data.subtype+"] "+username+": "+data.text);
+          
+          sendTelegramMessage( username+": "+cleanSlackUsers(data.text));
         } else if (data.type === "file_shared") {
           var fileUrl = data.file.url;
           var fileName = data.file.title;
           var filemime = data.file.mimetype;
           var comment = data.file.initial_comment.comment;
           var username = "Unknown";
-          if (data.file.initial_comment.user in users)
-            username = users[data.file.initial_comment.user].real_name + "[" + users[data.file.initial_comment.user].name + "]";
+          if (data.file.initial_comment.user in slackUsers)
+            username = slackUsers[data.file.initial_comment.user].real_name + "[" + slackUsers[data.file.initial_comment.user].name + "]";
 
           console.log("(Telegram) "+username+" sent a file ("+fileName+"): "+comment);
           if (filemime.indexOf("image") > -1) {
