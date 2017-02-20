@@ -73,6 +73,12 @@ function getTelegramIcon(userId){
   
 }
 
+function cleanSlackForTelegram(message){
+  message=cleanSlackUsers(message);
+  message=message.replace("<","").replace(">","");
+  return message;
+}
+
 function cleanSlackUsers(message){
   var usersStrings=(message+"").match(/<@\w*>/g);
   if(usersStrings!==null){
@@ -139,7 +145,7 @@ sBot.on('start', function() {
 
           //console.log("(Telegram) ["+data.subtype+"] "+username+": "+data.text);
           
-          sendTelegramMessage( username+": "+cleanSlackUsers(data.text));
+          sendTelegramMessage( username+": "+cleanSlackForTelegram(data.text));
         } else if (data.type === "file_shared") {
           var fileUrl = data.file.url;
           var fileName = data.file.title;
