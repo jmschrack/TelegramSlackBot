@@ -2,14 +2,23 @@
 
 // npm install slackbots node-telegram-bot-api
 
+//for telegram
 var TelegramBot = require('node-telegram-bot-api');
+//for Slack RTM
 var SlackBot = require('slackbots');
+//easy wrapper for Web API
+var Slack = require('slack-node');
+//to scrape slack download pages
+var scrapeIt = require("scrape-it");
 
+
+var slackToken=process.env.SLACK_TOKEN || '';
 // create a bot
 var sBot = new SlackBot({
-    token: process.env.SLACK_TOKEN || '', // Add a bot https://my.slack.com/services/new/bot and put the token
+    token: slackToken, // Add a bot https://my.slack.com/services/new/bot and put the token
     name: 'Telegram Bot'
 });
+slack = new Slack(slackToken);
 
 var slackChannelName = process.env.SLACK_CHAT_ID || '';
 
@@ -55,8 +64,39 @@ function sendTelegramMessage(message){
   tBot.sendMessage(tChatId,message,params);
 }
 
+function sideloadSlackFileToTelegram(slackFile){
+
+  slack.api('files.info',{file:slackFile},function (err, response){
+    if(response!=undefined&&response!=null){
+      console.log(response);
+      if(response.ok&&response.file.public_url_shared){
+        var params={
+          caption:slackUsers[response.file.user].name+""
+        }
+        if(response.file.comments_count>0){
+          params.caption+=": "+response.file.initial_comment.comment;
+        }
+        scrapeIt(response.file.permalink_public,{
+          fileUrl: {selector:"div a",
+                    attr:"href"}
+        }).then(function (page){
+          if(response.file.mimetype.includes("image")){
+            tBot.sendPhoto(tChatId,page.fileUrl,params);
+          }else
+            tBot.sendDocument(tChatId,page.fileUrl,params);
+        });
+
+        //tBot.sendDocument(tChatId,response.file.url_download);
+      }
+      
+    }
+  });
+  
+
+}
+
 function sendTelegramPhoto(photoURL,caption){
-    var params={caption:caption;}
+    var params={caption:caption}
     tBot.sendPhoto(tChatId,photoURL,params);
 }
 
@@ -140,7 +180,7 @@ sBot.on('start', function() {
 
       sBot.on('message', function(data) {
        //console.log("Slack Message")
-       //console.log(data);
+      // console.log(data);
 
         if (data.type === "message" && data.subtype !== 'bot_message' && data.subtype !== 'file_share') {
           var username = "Unknown";
@@ -150,7 +190,10 @@ sBot.on('start', function() {
           //console.log("(Telegram) ["+data.subtype+"] "+username+": "+data.text);
           
           sendTelegramMessage( username+": "+cleanSlackForTelegram(data.text));
-        } else if (data.type === "file_shared") {
+        } else if (data.type === "file_change") {
+          console.log("Sideloading file");
+          sideloadSlackFileToTelegram(data.file_id);
+          /*
           var fileUrl = data.file.url;
           var fileName = data.file.title;
           var filemime = data.file.mimetype;
@@ -167,8 +210,9 @@ sBot.on('start', function() {
           } else {
             console.log("Unhandled mimetype: "+filemime);
           }
+          */
         } else {
-          console.log("Generic Message: ",data);
+          //console.log("Generic Message: ",data);
         }
       });
     });
