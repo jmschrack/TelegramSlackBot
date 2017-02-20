@@ -55,6 +55,10 @@ function sendTelegramMessage(message){
   tBot.sendMessage(tChatId,message,params);
 }
 
+function sendTelegramPhoto(photoURL,caption){
+    var params={caption:caption;}
+    tBot.sendPhoto(tChatId,photoURL,params);
+}
 
 
 function getTelegramIcon(userId){
