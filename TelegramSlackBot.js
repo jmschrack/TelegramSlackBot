@@ -2,16 +2,34 @@
 
 // npm install slackbots node-telegram-bot-api
 
-//for telegram
+/*
+*=====================
+* Telegram Dependencies
+*======================
+*/
 var TelegramBot = require('node-telegram-bot-api');
+
+
+/*
+*=====================
+* Slack Dependencies
+*======================
+*/
 //for Slack RTM
 var SlackBot = require('slackbots');
 //easy wrapper for Web API
 var Slack = require('slack-node');
 //to scrape slack download pages
 var scrapeIt = require("scrape-it");
+var http = require('https');
+var SlackUploader = require('node-slack-upload');
+var fs = require('fs');
 
-
+/*
+*=====================
+* Local variables
+*======================
+*/
 var slackToken=process.env.SLACK_TOKEN || '';
 // create a bot
 var sBot = new SlackBot({
@@ -19,7 +37,7 @@ var sBot = new SlackBot({
     name: 'Telegram Bot'
 });
 slack = new Slack(slackToken);
-
+slackUploader = new SlackUploader(slackToken);
 var slackChannelName = process.env.SLACK_CHAT_ID || '';
 
 var token = process.env.TELEGRAM_TOKEN || ''; // Generate one with BotFather
@@ -91,13 +109,43 @@ function sideloadSlackFileToTelegram(slackFile){
       
     }
   });
-  
-
 }
 
-function sendTelegramPhoto(photoURL,caption){
-    var params={caption:caption}
-    tBot.sendPhoto(tChatId,photoURL,params);
+function streamTelegramFileToSlack(telegramFileID,fileName,caption){
+  var teleFile=fs.createWriteStream(fileName);
+  tBot.getFileLink(telegramFileID).then(function(fileURI){
+    var request = http.get(fileURI, function(response) {
+      response.pipe(teleFile);
+      teleFile.on('finish', function() {
+        console.log("attempting slack upload with "+fileURI);
+      slackUploader.uploadFile({
+        file:fs.createReadStream(fileName),
+        fileType: 'post',
+        title:fileName,
+        initialComment:caption,
+        channels:slackChannelName
+      },function(err,response){
+        if(err){
+          console.error(err);
+        }else{
+          console.log(response);
+        }
+        fs.unlink(fileName);
+      });
+    });
+      
+      /*
+      slack.api('files.upload',{
+        file:teleFile,
+        content:fileName,
+        fileType:'post',
+        caption:caption,
+        channels:slackChannelName
+      },function(err, response){
+  console.log(response);
+    });*/
+    });
+  });
 }
 
 
@@ -143,11 +191,20 @@ function cleanSlackUsers(message){
 // Any kind of message
 tBot.on('message', function (msg) {
   var chatId = msg.chat.id;
-  //console.log("Telegram message:");
- // console.log(msg);
+  console.log("Telegram message:");
+  console.log(msg);
 
-  if (slackBotRunning && (msg.chat.id+"") === tChatId) { 
-        sendSlackMessageWithIcon(msg.from.first_name + " " + msg.from.last_name, msg.text,msg.from.id);
+  if (slackBotRunning && (msg.chat.id+"") === tChatId) {
+        if(msg.hasOwnProperty('document')){
+          var caption=msg.from.first_name + " " + msg.from.last_name;
+          if(msg.hasOwnProperty('caption')){
+            caption+=": "+msg.caption;
+          }
+          streamTelegramFileToSlack(msg.document.file_id,msg.document.file_name,msg.caption);
+        } else{
+          sendSlackMessageWithIcon(msg.from.first_name + " " + msg.from.last_name, msg.text,msg.from.id);
+        }
+        
   }else{
     console.log("Telegram message conditional fail || slackBotRunning:"+slackBotRunning+"  && msg.chat.id===tChatId:"+(msg.chat.id === tChatId));
   }
@@ -193,24 +250,7 @@ sBot.on('start', function() {
         } else if (data.type === "file_change") {
           console.log("Sideloading file");
           sideloadSlackFileToTelegram(data.file_id);
-          /*
-          var fileUrl = data.file.url;
-          var fileName = data.file.title;
-          var filemime = data.file.mimetype;
-          var comment = data.file.initial_comment.comment;
-          var username = "Unknown";
-          if (data.file.initial_comment.user in slackUsers)
-            username = slackUsers[data.file.initial_comment.user].real_name + "[" + slackUsers[data.file.initial_comment.user].name + "]";
-
-          console.log("(Telegram) "+username+" sent a file ("+fileName+"): "+comment);
-          if (filemime.indexOf("image") > -1) {
-            tBot.sendPhoto(tChatId, rq.get(fileUrl), {
-              caption: username + ": "+comment
-            });
-          } else {
-            console.log("Unhandled mimetype: "+filemime);
-          }
-          */
+         
         } else {
           //console.log("Generic Message: ",data);
         }
