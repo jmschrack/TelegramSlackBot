@@ -10,4 +10,6 @@ Bot that cross posts messages, images, and files between Telegram and Slack
 - call ./run.sh
 
 #Cross platform file sharing
-To post an image or file from Slack to Telegram, the uploader must create an external link. (More Options> Create External Link) The bot will detect this and sideload the file to Telegram.
+Files and images posted to Telegram will automatically be posted to Slack.
+
+Slack does not allow bots to generate shared URLs. Currently a Slack user must choose the "Create External Link" option on a file for the bot to cross post. 
