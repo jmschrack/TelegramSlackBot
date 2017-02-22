@@ -19,11 +19,16 @@ var TelegramBot = require('node-telegram-bot-api');
 var SlackBot = require('slackbots');
 //easy wrapper for Web API
 var Slack = require('slack-node');
-//to scrape slack download pages
+
+//to scrape slack download pages for the friggin URL
 var scrapeIt = require("scrape-it");
+//to cross load
 var http = require('https');
+const URL = require('url');
 var SlackUploader = require('node-slack-upload');
 var fs = require('fs');
+//to convert slack emoji shortcode to UTF-8
+var emoji = require('node-emoji');
 
 /*
 *=====================
@@ -79,6 +84,7 @@ function sendTelegramMessage(message){
   var params={
     parse_mode:'HTML'
   };
+  message=emoji.emojify(message);
   tBot.sendMessage(tChatId,message,params);
 }
 
@@ -110,6 +116,23 @@ function sideloadSlackFileToTelegram(slackFile){
     }
   });
 }
+
+function streamSlackFileToTelegram(slackFileUrl,fileName,fileType,caption){
+  getInputStream(slackFileUrl,fileName).then(function(data){
+    if(fileType.includes('image')){
+      tBot.sendPhoto(tChatId,data,{caption:caption}).then(function(resp){
+        fs.unlink(fileName);
+      });
+    }else{
+      tBot.sendDocument(tChatId,data,{caption:caption}).then(function(resp){
+        fs.unlink(fileName);
+      });
+    }
+  });
+
+}
+
+
 
 function streamTelegramFileToSlack(telegramFileID,fileName,caption){
   var teleFile=fs.createWriteStream(fileName);
@@ -167,11 +190,14 @@ function getTelegramIcon(userId){
 
 function cleanSlackForTelegram(message){
   message=cleanSlackUsers(message);
+  console.log("cleaning slack message:"+message);
   message=message.replace("<","").replace(">","");
+  console.log("cleaned:"+message);
   return message;
 }
 
 function cleanSlackUsers(message){
+  console.log("Cleaning slack with users:"+message);
   var usersStrings=(message+"").match(/<@\w*>/g);
   if(usersStrings!==null){
     usersStrings.forEach(function(value){
@@ -179,10 +205,23 @@ function cleanSlackUsers(message){
     message=message.replace(value,"@"+slackUsers[cleanedId].name);
   });
   }
-  
+  console.log("cleaned:"+message);
   return message;
 }
 
+
+function getInputStream(url,fileName){
+  return new Promise(function (resolve,reject){
+      var file = fs.createWriteStream(fileName);
+      var request = http.get(url, function(response) {
+        //console.log(response);
+      response.pipe(file);
+      file.on('finish', function() {
+        resolve(fs.createReadStream(fileName));
+      });
+    });
+  });
+}
 
 /*
 * Hooks
@@ -236,8 +275,8 @@ sBot.on('start', function() {
       });
 
       sBot.on('message', function(data) {
-       //console.log("Slack Message")
-      // console.log(data);
+       console.log("Slack Message")
+       console.log(data);
 
         if (data.type === "message" && data.subtype !== 'bot_message' && data.subtype !== 'file_share') {
           var username = "Unknown";
@@ -250,7 +289,13 @@ sBot.on('start', function() {
         } else if (data.type === "file_change") {
           console.log("Sideloading file");
           sideloadSlackFileToTelegram(data.file_id);
-         
+        }else if(data.type==="message"&&data.subtype=='file_share') {
+          var comment=slackUsers[data.user].real_name + "[" + slackUsers[data.user].name + "]";
+          if(data.file.comments_count>0){
+            comment+=": "+data.file.initial_comment.comment;
+          }
+          streamSlackFileToTelegram(data.file.url_private_download,data.file.name,data.file.mimetype,comment);
+        
         } else {
           //console.log("Generic Message: ",data);
         }
