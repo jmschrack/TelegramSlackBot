@@ -57,6 +57,8 @@ var slackUsers = {};
 * Helper Methods
 */
 
+
+
 function sendSlackMessageWithIcon(name,message,userId){
   getTelegramIcon(userId).then(function(uri){
     sendSlackMessage(name,message,uri);
@@ -134,7 +136,10 @@ function streamSlackFileToTelegram(slackFileUrl,fileName,fileType,caption){
 
 
 
-function streamTelegramFileToSlack(telegramFileID,fileName,caption){
+
+
+function streamTelegramFileToSlack(name,telegramFileID,fileName,caption){
+   //sBot.name = name + " (Telegram)";
   var teleFile=fs.createWriteStream(fileName);
   tBot.getFileLink(telegramFileID).then(function(fileURI){
     var request = http.get(fileURI, function(response) {
@@ -145,7 +150,7 @@ function streamTelegramFileToSlack(telegramFileID,fileName,caption){
         file:fs.createReadStream(fileName),
         fileType: 'post',
         title:fileName,
-        initialComment:caption,
+        initialComment:name + " (Telegram): "+caption,
         channels:slackChannelName
       },function(err,response){
         if(err){
@@ -213,13 +218,21 @@ function cleanSlackUsers(message){
 function getInputStream(url,fileName){
   return new Promise(function (resolve,reject){
       var file = fs.createWriteStream(fileName);
-      var request = http.get(url, function(response) {
+      var options={
+        url:url,
+        method:'GET',
+        header:{
+          'Authorization': 'Bearer '+slackToken
+        }
+      };
+      var request = http.request(options, function(response) {
         //console.log(response);
       response.pipe(file);
       file.on('finish', function() {
         resolve(fs.createReadStream(fileName));
       });
     });
+    request.close();
   });
 }
 
@@ -234,12 +247,13 @@ tBot.on('message', function (msg) {
   console.log(msg);
 
   if (slackBotRunning && (msg.chat.id+"") === tChatId) {
-        if(msg.hasOwnProperty('document')){
-          var caption=msg.from.first_name + " " + msg.from.last_name;
+        if(msg.hasOwnProperty('document')){//||msg.hasOwnProperty('audio')){
+          var file = (msg.hasOwnProperty('document'))?msg.document:msg.audio;
+          var caption;//=msg.from.first_name + " " + msg.from.last_name;
           if(msg.hasOwnProperty('caption')){
             caption+=": "+msg.caption;
           }
-          streamTelegramFileToSlack(msg.document.file_id,msg.document.file_name,msg.caption);
+          streamTelegramFileToSlack(msg.from.first_name + " " + msg.from.last_name,file.file_id,file.file_name,msg.caption);
         } else{
           sendSlackMessageWithIcon(msg.from.first_name + " " + msg.from.last_name, msg.text,msg.from.id);
         }
@@ -289,13 +303,15 @@ sBot.on('start', function() {
         } else if (data.type === "file_change") {
           console.log("Sideloading file");
           sideloadSlackFileToTelegram(data.file_id);
+          /*
+          there is a problem with the way HTTP forms streams and causes an unhandled exception when we try to stream
         }else if(data.type==="message"&&data.subtype=='file_share') {
           var comment=slackUsers[data.user].real_name + "[" + slackUsers[data.user].name + "]";
           if(data.file.comments_count>0){
             comment+=": "+data.file.initial_comment.comment;
           }
           streamSlackFileToTelegram(data.file.url_private_download,data.file.name,data.file.mimetype,comment);
-        
+        */
         } else {
           //console.log("Generic Message: ",data);
         }
