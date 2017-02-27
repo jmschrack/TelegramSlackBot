@@ -2,6 +2,8 @@
 
 // npm install slackbots node-telegram-bot-api
 
+//because I'm lazy
+var jsonfile = require('jsonfile');
 /*
 *=====================
 * Telegram Dependencies
@@ -15,6 +17,7 @@ var TelegramBot = require('node-telegram-bot-api');
 * Slack Dependencies
 *======================
 */
+
 //for Slack RTM
 var SlackBot = require('slackbots');
 //easy wrapper for Web API
@@ -51,22 +54,46 @@ var tBot = new TelegramBot(token, {polling: true});
 var tChatId = process.env.TELEGRAM_CHAT_ID || ''; // Your telegram group ID
 var slackBotRunning = false;
 var slackUsers = {};
+var debugEnabled=process.env.BOT_DEBUG || false;
 
-
+/*
+* Load Mappings
+*/
+//telegram goes in; slack comes out
+var slackChannels={};
+//slack goes in; telegram goes out
+var telegramChannels={};
+jsonfile.readFile('channelMaps.json',function(err,obj){
+  telegramChannels=obj;
+  Object.keys(obj).forEach(function(key,index) {
+    slack.api("channels.info",{channel:key},function(err, response){
+      if(response.ok){
+        slackChannels[obj[key]]=response.channel.name;
+        console.log(slackChannels);
+      }else{
+        console.log(response);
+        slackChannels[obj[key]]=key;
+      }
+    });
+    
+  });
+  //console.log(slackChannels);
+  console.log(telegramChannels);
+});
 /*
 * Helper Methods
 */
 
 
 
-function sendSlackMessageWithIcon(name,message,userId){
+function sendSlackMessageWithIcon(name,message,userId,channel){
   getTelegramIcon(userId).then(function(uri){
-    sendSlackMessage(name,message,uri);
+    sendSlackMessage(name,message,uri,channel);
   })
 }
 
-function sendSlackMessage(name, message, image) {
-  console.log("(Slack) "+name+": "+message);
+function sendSlackMessage(name, message, image,channel) {
+  console.log("(Slack) #"+channel+" "+name+": "+message);
   var params = {
     link_names:true
   };
@@ -75,22 +102,22 @@ function sendSlackMessage(name, message, image) {
     params.icon_url = image;
   else
     params.icon_url = 'http://fm.cnbc.com/applications/cnbc.com/resources/img/editorial/2014/09/02/101962788-152406431.530x298.jpg';
-  sBot.postMessageToChannel('general', message, params).fail(function(data){
+  sBot.postMessage(channel, message, params).fail(function(data){
     console.log("Failed to send slack message. Error dump:");
     console.log(data);
   });
 }
 
-function sendTelegramMessage(message){
+function sendTelegramMessage(message,chatId){
 
   var params={
     parse_mode:'HTML'
   };
   message=emoji.emojify(message);
-  tBot.sendMessage(tChatId,message,params);
+  tBot.sendMessage(chatId,message,params);
 }
 
-function sideloadSlackFileToTelegram(slackFile){
+function sideloadSlackFileToTelegram(slackFile,chatId){
 
   slack.api('files.info',{file:slackFile},function (err, response){
     if(response!=undefined&&response!=null){
@@ -107,9 +134,9 @@ function sideloadSlackFileToTelegram(slackFile){
                     attr:"href"}
         }).then(function (page){
           if(response.file.mimetype.includes("image")){
-            tBot.sendPhoto(tChatId,page.fileUrl,params);
+            tBot.sendPhoto(chatId,page.fileUrl,params);
           }else
-            tBot.sendDocument(tChatId,page.fileUrl,params);
+            tBot.sendDocument(chatId,page.fileUrl,params);
         });
 
         //tBot.sendDocument(tChatId,response.file.url_download);
@@ -119,14 +146,14 @@ function sideloadSlackFileToTelegram(slackFile){
   });
 }
 
-function streamSlackFileToTelegram(slackFileUrl,fileName,fileType,caption){
+function streamSlackFileToTelegram(slackFileUrl,fileName,fileType,caption,chatId){
   getInputStream(slackFileUrl,fileName).then(function(data){
     if(fileType.includes('image')){
-      tBot.sendPhoto(tChatId,data,{caption:caption}).then(function(resp){
+      tBot.sendPhoto(chatId,data,{caption:caption}).then(function(resp){
         fs.unlink(fileName);
       });
     }else{
-      tBot.sendDocument(tChatId,data,{caption:caption}).then(function(resp){
+      tBot.sendDocument(chatId,data,{caption:caption}).then(function(resp){
         fs.unlink(fileName);
       });
     }
@@ -138,7 +165,7 @@ function streamSlackFileToTelegram(slackFileUrl,fileName,fileType,caption){
 
 
 
-function streamTelegramFileToSlack(name,telegramFileID,fileName,caption){
+function streamTelegramFileToSlack(name,telegramFileID,fileName,caption,channel){
    //sBot.name = name + " (Telegram)";
   var teleFile=fs.createWriteStream(fileName);
   tBot.getFileLink(telegramFileID).then(function(fileURI){
@@ -151,7 +178,7 @@ function streamTelegramFileToSlack(name,telegramFileID,fileName,caption){
         fileType: 'post',
         title:fileName,
         initialComment:name + " (Telegram): "+caption,
-        channels:slackChannelName
+        channels:channel
       },function(err,response){
         if(err){
           console.error(err);
@@ -195,14 +222,14 @@ function getTelegramIcon(userId){
 
 function cleanSlackForTelegram(message){
   message=cleanSlackUsers(message);
-  console.log("cleaning slack message:"+message);
+ // console.log("cleaning slack message:"+message);
   message=message.replace("<","").replace(">","");
-  console.log("cleaned:"+message);
+  //console.log("cleaned:"+message);
   return message;
 }
 
 function cleanSlackUsers(message){
-  console.log("Cleaning slack with users:"+message);
+  //console.log("Cleaning slack with users:"+message);
   var usersStrings=(message+"").match(/<@\w*>/g);
   if(usersStrings!==null){
     usersStrings.forEach(function(value){
@@ -210,7 +237,7 @@ function cleanSlackUsers(message){
     message=message.replace(value,"@"+slackUsers[cleanedId].name);
   });
   }
-  console.log("cleaned:"+message);
+  //console.log("cleaned:"+message);
   return message;
 }
 
@@ -242,20 +269,26 @@ function getInputStream(url,fileName){
 
 // Any kind of message
 tBot.on('message', function (msg) {
-  var chatId = msg.chat.id;
+  var chatId = msg.chat.id+"";
   console.log("Telegram message:");
   console.log(msg);
 
-  if (slackBotRunning && (msg.chat.id+"") === tChatId) {
+  if (slackBotRunning && slackChannels.hasOwnProperty(chatId)) {
         if(msg.hasOwnProperty('document')){//||msg.hasOwnProperty('audio')){
           var file = (msg.hasOwnProperty('document'))?msg.document:msg.audio;
           var caption;//=msg.from.first_name + " " + msg.from.last_name;
           if(msg.hasOwnProperty('caption')){
             caption+=": "+msg.caption;
           }
-          streamTelegramFileToSlack(msg.from.first_name + " " + msg.from.last_name,file.file_id,file.file_name,msg.caption);
+          streamTelegramFileToSlack(msg.from.first_name + " " + msg.from.last_name,file.file_id,file.file_name,msg.caption,slackChannels[chatId]);
         } else{
-          sendSlackMessageWithIcon(msg.from.first_name + " " + msg.from.last_name, msg.text,msg.from.id);
+          var text="";
+          if(msg.hasOwnProperty('reply_to_message')){
+            
+            text=">"+msg.reply_to_message.from.first_name+" "+msg.reply_to_message.from.last_name+": "+msg.reply_to_message.text+"\n";
+          }
+          console.log("Sending slack message to "+slackChannels[chatId])
+          sendSlackMessageWithIcon(msg.from.first_name + " " + msg.from.last_name, text+msg.text,msg.from.id,slackChannels[chatId]);
         }
         
   }else{
@@ -291,18 +324,19 @@ sBot.on('start', function() {
       sBot.on('message', function(data) {
        console.log("Slack Message")
        console.log(data);
-
-        if (data.type === "message" && data.subtype !== 'bot_message' && data.subtype !== 'file_share') {
+       
+        if (data.type === "message" && data.subtype !== 'bot_message' && data.subtype !== 'file_share'&&telegramChannels.hasOwnProperty(data.channel)) {
+          var chatId=data.channel;
           var username = "Unknown";
           if (data.user in slackUsers)
             username = slackUsers[data.user].real_name + "[" + slackUsers[data.user].name + "]";
 
           //console.log("(Telegram) ["+data.subtype+"] "+username+": "+data.text);
           
-          sendTelegramMessage( username+": "+cleanSlackForTelegram(data.text));
+          sendTelegramMessage( username+": "+cleanSlackForTelegram(data.text),telegramChannels[chatId]);
         } else if (data.type === "file_change") {
           console.log("Sideloading file");
-          sideloadSlackFileToTelegram(data.file_id);
+          sideloadSlackFileToTelegram(data.file_id,telegramChannels[chatId]);
           /*
           there is a problem with the way HTTP forms streams and causes an unhandled exception when we try to stream
         }else if(data.type==="message"&&data.subtype=='file_share') {
@@ -318,3 +352,10 @@ sBot.on('start', function() {
       });
     });
 });
+
+
+function log(text){
+  if(debugEnabled){
+    console.log(text);
+  }
+}
