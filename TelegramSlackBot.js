@@ -276,11 +276,18 @@ tBot.on('message', function (msg) {
   if (slackBotRunning && slackChannels.hasOwnProperty(chatId)) {
         if(msg.hasOwnProperty('document')){//||msg.hasOwnProperty('audio')){
           var file = (msg.hasOwnProperty('document'))?msg.document:msg.audio;
-          var caption;//=msg.from.first_name + " " + msg.from.last_name;
+          var caption="";//=msg.from.first_name + " " + msg.from.last_name;
           if(msg.hasOwnProperty('caption')){
             caption+=": "+msg.caption;
           }
-          streamTelegramFileToSlack(msg.from.first_name + " " + msg.from.last_name,file.file_id,file.file_name,msg.caption,slackChannels[chatId]);
+          streamTelegramFileToSlack(msg.from.first_name + " " + msg.from.last_name,file.file_id,file.file_name,caption,slackChannels[chatId]);
+        }else if(msg.hasOwnProperty("photo")){
+          var caption="";
+          if(msg.hasOwnProperty('caption')){
+            caption+=": "+msg.caption;
+          }
+          var fileId=msg.photo[msg.photo.length-1].file_id;
+          streamTelegramFileToSlack(msg.from.first_name + " " + msg.from.last_name,fileId,"photo.png",caption,slackChannels[chatId]);
         } else{
           var text="";
           if(msg.hasOwnProperty('reply_to_message')){
