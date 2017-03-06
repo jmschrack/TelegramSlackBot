@@ -312,10 +312,14 @@ sBot.on('start', function() {
       var params = {
           icon_url: 'http://fm.cnbc.com/applications/cnbc.com/resources/img/editorial/2014/09/02/101962788-152406431.530x298.jpg'
       };
-     console.log("Sending Slack Hello");
-      sendSlackMessage("Proto Telegram Bot", "Protobot online");
-      console.log("Sending Telegram hello");
-      sendTelegramMessage("Proto Slack bot online.");
+     console.log("Sending startup Hello");
+
+     Object.keys(telegramChannels).forEach(function(key,index) {
+        sendSlackMessage("Teamspeak->Slack bot","I'm online!",null,key);
+        sendTelegramMessage("Slack->Telegram bot is online!",telegramChannels[key]);
+     });
+
+     
 
       console.log("Fetching slack users");
       
